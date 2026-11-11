@@ -127,21 +127,17 @@
 
         const now = new Date();
 
-        const today = new Date(Date.UTC(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate()
-        ));
+        const now = new Date();
+        const year = now.getFullYear();
 
-        const start = new Date(today);
-        start.setUTCDate(
-          start.getUTCDate() - 364
-        );
+        // Start on January 1
+        const start = new Date(Date.UTC(year, 0, 1));
 
-        // Start at Sunday for full calendar weeks
-        start.setUTCDate(
-          start.getUTCDate() -
-          start.getUTCDay()
+        // Finish on December 31
+        const end = new Date(Date.UTC(year, 11, 31));
+
+        // Align first column with Sunday
+        start.setUTCDate(start.getUTCDate() - start.getUTCDay());
         );
 
         let logged = 0;
