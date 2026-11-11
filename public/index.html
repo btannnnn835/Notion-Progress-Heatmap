@@ -5,83 +5,165 @@
   <meta charset="UTF-8">
   <meta name="viewport"
         content="width=device-width, initial-scale=1">
-  <title>My Journal Heatmap</title>
+
+  <title>My Daily Journal</title>
 
   <style>
     :root {
       color-scheme: light dark;
-      font-family: Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     body {
       margin: 0;
-      padding: 18px;
+      padding: 20px;
       background: transparent;
       color: light-dark(#242424, #eeeeee);
     }
 
-    h2 {
-      font-size: 18px;
-      margin: 0 0 8px;
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
     }
 
-    p {
+    h2 {
+      font-size: 19px;
+      font-weight: 650;
+      margin: 0 0 6px;
+    }
+
+    .subtitle {
       font-size: 12px;
-      opacity: 0.7;
+      opacity: 0.65;
+      margin: 0;
+    }
+
+    select {
+      background: transparent;
+      color: inherit;
+      border: 1px solid #8885;
+      border-radius: 7px;
+      padding: 7px 12px;
+      font-size: 13px;
+      cursor: pointer;
     }
 
     .scroll {
       overflow-x: auto;
-      padding: 10px 0;
+      padding: 12px 0;
     }
 
-    #heatmap {
-      display: grid;
-      grid-template-rows: repeat(7, 12px);
-      grid-auto-columns: 12px;
-      grid-auto-flow: column;
-      gap: 3px;
+    .calendar {
+      display: flex;
+      gap: 5px;
       width: max-content;
     }
 
+    .week {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
     .day {
-      width: 12px;
-      height: 12px;
+      width: 13px;
+      height: 13px;
       border-radius: 3px;
       background: #d9dfe3;
+      flex-shrink: 0;
       cursor: default;
+    }
+
+    .day.future {
+      opacity: 0.35;
+    }
+
+    .day.outside {
+      visibility: hidden;
+    }
+
+    .day:hover {
+      outline: 2px solid #888;
+      outline-offset: 1px;
     }
 
     .legend {
       display: flex;
       align-items: center;
       gap: 4px;
-      margin-top: 14px;
-      font-size: 12px;
-    }
-
-    .legend .day {
-      flex-shrink: 0;
+      margin-top: 15px;
+      font-size: 11px;
+      opacity: 0.85;
     }
 
     .legend span {
       margin: 0 5px;
     }
+
+    .legend .day {
+      width: 12px;
+      height: 12px;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .stat {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .error {
+      color: #e05a45;
+    }
   </style>
 </head>
 
 <body>
-  <h2>My Daily Journal</h2>
-  <p>How have my days been over the past year?</p>
+
+  <div class="header">
+    <div>
+      <h2>My Daily Journal</h2>
+      <p class="subtitle">
+        A year of daily reflections
+      </p>
+    </div>
+
+    <select id="yearSelect"
+            aria-label="Select year">
+    </select>
+  </div>
 
   <div class="scroll">
-    <div id="heatmap"></div>
+    <div id="heatmap" class="calendar"></div>
   </div>
 
   <div class="legend" id="legend"></div>
-  <p id="status">Loading journal ratings...</p>
+
+  <div class="footer">
+    <span class="stat" id="status">
+      Loading journal ratings...
+    </span>
+
+    <span class="stat" id="average"></span>
+  </div>
 
   <script>
+    // Rating colours: 1 (red) to 10 (green)
     const colors = [
       "#d93d49",
       "#e05a45",
@@ -95,13 +177,176 @@
       "#259967"
     ];
 
-    function dateKey(date) {
-      return date.toISOString().slice(0, 10);
+    const currentYear = new Date().getFullYear();
+    const yearSelect =
+      document.getElementById("yearSelect");
+
+    const heatmap =
+      document.getElementById("heatmap");
+
+    const status =
+      document.getElementById("status");
+
+    const average =
+      document.getElementById("average");
+
+    let ratings = new Map();
+
+    // Create year selector
+    for (
+      let year = currentYear;
+      year >= currentYear - 5;
+      year--
+    ) {
+      const option = document.createElement("option");
+      option.value = year;
+      option.textContent = year;
+      yearSelect.appendChild(option);
     }
 
-    async function loadHeatmap() {
-      const status = document.getElementById("status");
+    // Use local date, not UTC
+    function dateKey(date) {
+      const year = date.getFullYear();
 
+      const month = String(
+        date.getMonth() + 1
+      ).padStart(2, "0");
+
+      const day = String(
+        date.getDate()
+      ).padStart(2, "0");
+
+      return `${year}-${month}-${day}`;
+    }
+
+    // Create the colour legend
+    function createLegend() {
+      const legend =
+        document.getElementById("legend");
+
+      legend.replaceChildren();
+
+      const bad = document.createElement("span");
+      bad.textContent = "Bad";
+      legend.appendChild(bad);
+
+      colors.forEach(color => {
+        const square = document.createElement("div");
+        square.className = "day";
+        square.style.backgroundColor = color;
+        legend.appendChild(square);
+      });
+
+      const good = document.createElement("span");
+      good.textContent = "Great";
+      legend.appendChild(good);
+    }
+
+    // Draw the full January–December calendar
+    function renderHeatmap() {
+      const selectedYear =
+        Number(yearSelect.value);
+
+      heatmap.replaceChildren();
+
+      const firstDay =
+        new Date(selectedYear, 0, 1);
+
+      const lastDay =
+        new Date(selectedYear, 11, 31);
+
+      // Start on Sunday
+      const start = new Date(firstDay);
+      start.setDate(
+        start.getDate() - start.getDay()
+      );
+
+      // End on Saturday
+      const end = new Date(lastDay);
+      end.setDate(
+        end.getDate() + (6 - end.getDay())
+      );
+
+      const today = dateKey(new Date());
+
+      let logged = 0;
+      let total = 0;
+
+      let week = null;
+
+      for (
+        let date = new Date(start);
+        date <= end;
+        date.setDate(date.getDate() + 1)
+      ) {
+        // Create a new column every Sunday
+        if (date.getDay() === 0) {
+          week = document.createElement("div");
+          week.className = "week";
+          heatmap.appendChild(week);
+        }
+
+        const key = dateKey(date);
+        const rating = ratings.get(key);
+
+        const square =
+          document.createElement("div");
+
+        square.className = "day";
+
+        // Hide days outside selected year
+        if (date.getFullYear() !== selectedYear) {
+          square.classList.add("outside");
+        }
+
+        // Make future days faded
+        if (key > today) {
+          square.classList.add("future");
+        }
+
+        if (
+          typeof rating === "number" &&
+          rating >= 1 &&
+          rating <= 10 &&
+          date.getFullYear() === selectedYear
+        ) {
+          const index = Math.min(
+            9,
+            Math.max(0, Math.round(rating) - 1)
+          );
+
+          square.style.backgroundColor =
+            colors[index];
+
+          logged++;
+          total += rating;
+        }
+
+        square.title =
+          `${key}: ` +
+          (rating == null
+            ? "Not recorded"
+            : `${rating}/10`);
+
+        square.setAttribute(
+          "aria-label",
+          square.title
+        );
+
+        week.appendChild(square);
+      }
+
+      status.textContent =
+        `${logged} journal days recorded`;
+
+      average.textContent =
+        logged > 0
+          ? `Average rating: ${(total / logged).toFixed(1)}/10`
+          : "No ratings yet";
+    }
+
+    // Fetch journal data from Notion API
+    async function loadRatings() {
       try {
         const response = await fetch(
           "/api/database",
@@ -109,96 +354,71 @@
         );
 
         if (!response.ok) {
-          throw new Error("API request failed");
+          throw new Error(
+            `API returned ${response.status}`
+          );
         }
 
         const entries = await response.json();
-        const ratings = new Map(
-          entries.map(entry => [
-            entry.date,
-            entry.rating
-          ])
-        );
 
-        const container =
-          document.getElementById("heatmap");
-
-        container.replaceChildren();
-
-        const now = new Date();
-
-        const now = new Date();
-        const year = now.getFullYear();
-
-        // Start on January 1
-        const start = new Date(Date.UTC(year, 0, 1));
-
-        // Finish on December 31
-        const end = new Date(Date.UTC(year, 11, 31));
-
-        // Align first column with Sunday
-        start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-        );
-
-        let logged = 0;
-
-        for (
-          let day = new Date(start);
-          day <= end;
-          day.setUTCDate(day.getUTCDate() + 1)
-        ) {
-          const key = dateKey(day);
-          const rating = ratings.get(key);
-
-          const square =
-            document.createElement("div");
-
-          square.className = "day";
-
-          if (rating >= 1 && rating <= 10) {
-            square.style.backgroundColor =
-              colors[Math.round(rating) - 1];
-            logged++;
-          }
-
-          square.title =
-            `${key}: ` +
-            (rating == null
-              ? "Not recorded"
-              : `${rating}/10`);
-
-          container.appendChild(square);
+        if (!Array.isArray(entries)) {
+          throw new Error(
+            "Unexpected API response"
+          );
         }
 
-        status.textContent =
-          `${logged} journal days recorded`;
+        ratings = new Map();
+
+        entries.forEach(entry => {
+          const date = entry.date;
+          const rating = Number(entry.rating);
+
+          if (
+            typeof date === "string" &&
+            Number.isFinite(rating) &&
+            rating >= 1 &&
+            rating <= 10
+          ) {
+            ratings.set(
+              date.slice(0, 10),
+              rating
+            );
+          }
+        });
+
+        status.classList.remove("error");
+        renderHeatmap();
 
       } catch (error) {
+        console.error("Heatmap error:", error);
+
+        // Still render grey calendar squares
+        renderHeatmap();
+
         status.textContent =
-          "Could not load ratings. Check the API setup.";
-        console.error(error);
+          "Could not load journal ratings. Check API.";
+
+        status.classList.add("error");
       }
     }
 
-    const legend = document.getElementById("legend");
+    yearSelect.addEventListener(
+      "change",
+      renderHeatmap
+    );
 
-    legend.innerHTML = "<span>Bad</span>";
+    createLegend();
 
-    colors.forEach(color => {
-      const square = document.createElement("div");
-      square.className = "day";
-      square.style.backgroundColor = color;
-      legend.appendChild(square);
-    });
+    // Show the calendar immediately, even
+    // if Notion has not responded yet.
+    renderHeatmap();
 
-    const label = document.createElement("span");
-    label.textContent = "Great";
-    legend.appendChild(label);
+    // Load actual journal ratings.
+    loadRatings();
 
-    loadHeatmap();
-
-    // Refresh every 30 seconds while open
-    setInterval(loadHeatmap, 30000);
+    // Automatically check for updates.
+    setInterval(loadRatings, 30000);
   </script>
+
 </body>
 </html>
