@@ -1,68 +1,208 @@
-<html lang="zh">
-<head>
-    <meta charset="UTF-8">
-    <title>Notion Task Heatmap</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cal-heatmap/cal-heatmap.css" />
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-    </style>
-</head>
-<body>
-    <div id="cal-heatmap"></div>
-    <script src="https://cdn.jsdelivr.net/npm/d3@3"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cal-heatmap/cal-heatmap.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const baseUrl = window.location.origin; // 获取当前页面的根URL
-        
-            const cal = new CalHeatMap();
-            cal.init({
-                itemSelector: "#cal-heatmap",
-                domain: "month",
-                subDomain: "day",
-                data: baseUrl + "/api/database", // 更新为指向无服务器函数的URL
-                start: new Date(new Date().getFullYear(), new Date().getMonth() - 5),
-                cellSize: 10,
-                range: 6,
-                tooltip: true,
-                nextSelector: "#next",
-                previousSelector: "#previous",
-                considerMissingDataAsZero: false,
-                legend: [25, 50, 65, 80], // Redefining the legend thresholds
-                legendColors: {
-                    min: "#ebedf0",
-                    base: "#ebedf0",
-                    colors: ["#ebedf0","#c6e48b", "#7bc96f", "#239a3b", "#196127"], // Adjusted color steps for clarity
-                    empty: "#ebedf0"
-                },
-                subDomainTitleFormat: {
-                    empty: "{date}", // Display only the date for empty data cells
-                    filled: "{count}% on {date}" // Custom format to show percentage
-                },
-                afterLoadData: function(data) {
-                    if (!data) {
-                        console.error('No data received');
-                        return {};
-                    }
 
-                    var result = {};
-                    data.forEach(function(item) {
-                        var date = new Date(item.date).getTime() / 1000;
-                        result[date] = item.progress;
-                    });
-                    return result;
-                }
-            });
-        
-            // 设置定时器每30秒刷新数据
-            setInterval(function() {
-                cal.update(baseUrl + "/api/database"); // 更新为指向无服务器函数的URL
-            }, 30000); // 每30秒刷新一次
-        });
-    </script>
-            
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+  <title>My Journal Heatmap</title>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Arial, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 18px;
+      background: transparent;
+      color: light-dark(#242424, #eeeeee);
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 0 0 8px;
+    }
+
+    p {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .scroll {
+      overflow-x: auto;
+      padding: 10px 0;
+    }
+
+    #heatmap {
+      display: grid;
+      grid-template-rows: repeat(7, 12px);
+      grid-auto-columns: 12px;
+      grid-auto-flow: column;
+      gap: 3px;
+      width: max-content;
+    }
+
+    .day {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      background: #d9dfe3;
+      cursor: default;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 14px;
+      font-size: 12px;
+    }
+
+    .legend .day {
+      flex-shrink: 0;
+    }
+
+    .legend span {
+      margin: 0 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>My Daily Journal</h2>
+  <p>How have my days been over the past year?</p>
+
+  <div class="scroll">
+    <div id="heatmap"></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+  <p id="status">Loading journal ratings...</p>
+
+  <script>
+    const colors = [
+      "#d93d49",
+      "#e05a45",
+      "#e77b44",
+      "#ee9b49",
+      "#eebc54",
+      "#d5c65b",
+      "#a8bf59",
+      "#83b65a",
+      "#57a96c",
+      "#259967"
+    ];
+
+    function dateKey(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    async function loadHeatmap() {
+      const status = document.getElementById("status");
+
+      try {
+        const response = await fetch(
+          "/api/database",
+          { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+          throw new Error("API request failed");
+        }
+
+        const entries = await response.json();
+        const ratings = new Map(
+          entries.map(entry => [
+            entry.date,
+            entry.rating
+          ])
+        );
+
+        const container =
+          document.getElementById("heatmap");
+
+        container.replaceChildren();
+
+        const now = new Date();
+
+        const today = new Date(Date.UTC(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate()
+        ));
+
+        const start = new Date(today);
+        start.setUTCDate(
+          start.getUTCDate() - 364
+        );
+
+        // Start at Sunday for full calendar weeks
+        start.setUTCDate(
+          start.getUTCDate() -
+          start.getUTCDay()
+        );
+
+        let logged = 0;
+
+        for (
+          let day = new Date(start);
+          day <= today;
+          day.setUTCDate(day.getUTCDate() + 1)
+        ) {
+          const key = dateKey(day);
+          const rating = ratings.get(key);
+
+          const square =
+            document.createElement("div");
+
+          square.className = "day";
+
+          if (rating >= 1 && rating <= 10) {
+            square.style.backgroundColor =
+              colors[Math.round(rating) - 1];
+            logged++;
+          }
+
+          square.title =
+            `${key}: ` +
+            (rating == null
+              ? "Not recorded"
+              : `${rating}/10`);
+
+          container.appendChild(square);
+        }
+
+        status.textContent =
+          `${logged} journal days recorded`;
+
+      } catch (error) {
+        status.textContent =
+          "Could not load ratings. Check the API setup.";
+        console.error(error);
+      }
+    }
+
+    const legend = document.getElementById("legend");
+
+    legend.innerHTML = "<span>Bad</span>";
+
+    colors.forEach(color => {
+      const square = document.createElement("div");
+      square.className = "day";
+      square.style.backgroundColor = color;
+      legend.appendChild(square);
+    });
+
+    const label = document.createElement("span");
+    label.textContent = "Great";
+    legend.appendChild(label);
+
+    loadHeatmap();
+
+    // Refresh every 30 seconds while open
+    setInterval(loadHeatmap, 30000);
+  </script>
 </body>
 </html>
