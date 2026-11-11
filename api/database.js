@@ -1,48 +1,73 @@
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-dotenv.config();
 
-export default async (req, res) => {
-    const token = process.env.ENV_NOTION_TOKEN;
-    const databaseId = process.env.ENV_DATABASE_ID;
+export default async function handler(req, res) {
+  const token = process.env.ENV_NOTION_TOKEN;
+  const dataSourceId = process.env.ENV_DATABASE_ID;
 
-    try {
-        const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Notion-Version': '2021-05-13',
-                'Content-Type': 'application/json'
-            },
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(`Notion API error: ${response.status} ${JSON.stringify(data)}`);
-        }
-
-        const processedData = processData(data.results);
-        res.json(processedData);
-    } catch (error) {
-        console.error("Error processing request:", error);
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const processData = (data) => {
-    const progressMap = new Map();
-
-    data.forEach(item => {
-        if (item.properties.Date && item.properties.Progress) {
-            if (item.properties.Progress.formula.number !== null && item.properties.Progress.formula.number > 0) {
-                const dateObject = new Date(item.properties.Date.created_time);
-                dateObject.setDate(dateObject.getDate() + 1); // Add one day to the date
-                const date = dateObject.toISOString().split('T')[0]; // Format back to YYYY-MM-DD
-                const progress = Math.round(item.properties.Progress.formula.number * 100); // Convert from 0-1 to 0-100
-                progressMap.set(date, progress);
-            }
-        }
+  if (!token || !dataSourceId) {
+    return res.status(500).json({
+      error: "Missing Notion configuration"
     });
+  }
 
-    return Array.from(progressMap).map(([date, progress]) => ({ date, progress }));
-};
+  try {
+    const results = [];
+    let cursor;
+
+    do {
+      const response = await fetch(
+        `https://api.notion.com/v1/data_sources/${dataSourceId}/query`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Notion-Version": "2025-09-03",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            page_size: 100,
+            ...(cursor ? { start_cursor: cursor } : {})
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`Notion API error: ${response.status}`);
+      }
+
+      results.push(...data.results);
+      cursor = data.has_more ? data.next_cursor : null;
+    } while (cursor);
+
+    const daily = new Map();
+
+    for (const page of results) {
+      const date = page.properties?.Date?.date?.start;
+      const rating = page.properties?.Rating?.number;
+
+      if (!date || rating === null ||
+          rating === undefined ||
+          rating < 1 || rating > 10) {
+        continue;
+      }
+
+      const day = date.slice(0, 10);
+      daily.set(day, rating);
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.status(200).json(
+      Array.from(daily, ([date, rating]) => ({
+        date,
+        rating
+      }))
+    );
+  } catch (error) {
+    console.error("Heatmap error:", error.message);
+    return res.status(500).json({
+      error: "Could not load journal ratings"
+    });
+  }
+}
