@@ -144,7 +144,7 @@
 
         for (
           let day = new Date(start);
-          day <= today;
+          day <= end;
           day.setUTCDate(day.getUTCDate() + 1)
         ) {
           const key = dateKey(day);
